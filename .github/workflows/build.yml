@@ -1,0 +1,369 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create project files
+        run: |
+          set -e
+          cat > settings.gradle <<'__END_FILE__'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "Lenta"
+          include ':app'
+          __END_FILE__
+          cat > build.gradle <<'__END_FILE__'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+          }
+          __END_FILE__
+          cat > gradle.properties <<'__END_FILE__'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          android.nonTransitiveRClass=true
+          __END_FILE__
+          mkdir -p app
+          cat > app/build.gradle <<'__END_FILE__'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.oleg.feed'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'com.oleg.feed'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '0.1'
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.debug
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          __END_FILE__
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'__END_FILE__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="Лента"
+                  android:icon="@drawable/ic_launcher"
+                  android:usesCleartextTraffic="true"
+                  android:hardwareAccelerated="true"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          __END_FILE__
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher.xml <<'__END_FILE__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#111111" android:pathData="M0,0h108v108h-108z"/>
+              <path android:fillColor="#25F4EE" android:pathData="M42,32L74,54L42,76Z"/>
+              <path android:fillColor="#FE2C55" android:pathData="M46,32L78,54L46,76Z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M44,34L76,54L44,74Z"/>
+          </vector>
+          __END_FILE__
+          mkdir -p app/src/main/java/com/oleg/feed
+          cat > app/src/main/java/com/oleg/feed/MainActivity.java <<'__END_FILE__'
+          package com.oleg.feed;
+
+          import android.app.Activity;
+          import android.graphics.Color;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.Window;
+          import android.view.WindowManager;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView web;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  Window w = getWindow();
+                  w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  w.setStatusBarColor(Color.BLACK);
+                  w.setNavigationBarColor(Color.BLACK);
+
+                  web = new WebView(this);
+                  web.setBackgroundColor(Color.BLACK);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setAllowFileAccess(true);
+                  // lets the local page call the site's API (no CORS from file://)
+                  s.setAllowFileAccessFromFileURLs(true);
+                  s.setAllowUniversalAccessFromFileURLs(true);
+                  s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+                  s.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  web.setWebViewClient(new WebViewClient());
+                  web.setWebChromeClient(new WebChromeClient());
+                  web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                  setContentView(web);
+                  web.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  web.evaluateJavascript("window.onAndroidBack && window.onAndroidBack()", value -> {
+                      if (!"true".equals(value)) MainActivity.super.onBackPressed();
+                  });
+              }
+
+              @Override
+              protected void onPause() {
+                  super.onPause();
+                  web.evaluateJavascript("document.querySelectorAll('video').forEach(function(v){v.pause()})", null);
+                  web.onPause();
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  web.onResume();
+              }
+          }
+          __END_FILE__
+          mkdir -p app/src/main/assets
+          cat > app/src/main/assets/index.html <<'__END_FILE__'
+          <!DOCTYPE html>
+          <html lang="ru">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+          <title>Лента</title>
+          <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+            html, body { height: 100%; background: #000; color: #fff; font-family: system-ui, -apple-system, Roboto, sans-serif; overflow: hidden; }
+            #feed { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+            #feed::-webkit-scrollbar { display: none; }
+            .slide { position: relative; height: 100%; width: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; }
+            .slide video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+            .slide .poster { position: absolute; inset: 0; background-size: cover; background-position: center; filter: blur(24px) brightness(.4); transform: scale(1.2); }
+            .slide video { position: relative; z-index: 1; }
+            .info { position: absolute; left: 12px; right: 72px; bottom: 18px; z-index: 3; font-size: 13px; line-height: 1.35; text-shadow: 0 1px 3px #000; pointer-events: none; }
+            .info b { font-size: 15px; }
+            .info .tags { opacity: .85; max-height: 3.9em; overflow: hidden; margin-top: 4px; }
+            .side { position: absolute; right: 10px; bottom: 90px; z-index: 3; display: flex; flex-direction: column; gap: 18px; align-items: center; }
+            .btn { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,.14); backdrop-filter: blur(6px); border: none; color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+            .btn small { display: block; font-size: 11px; }
+            .btn.on { background: #fe2c55; }
+            .pauseicon { position: absolute; z-index: 2; font-size: 72px; opacity: 0; transition: opacity .2s; pointer-events: none; text-shadow: 0 0 12px #000; }
+            .slide.paused .pauseicon { opacity: .8; }
+            .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: #fff; z-index: 4; width: 0; opacity: .8; }
+            #top { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: linear-gradient(#000a, transparent); pointer-events: none; }
+            #top * { pointer-events: auto; }
+            #top .title { font-weight: 700; font-size: 17px; }
+            #top .title span { opacity: .6; font-weight: 400; font-size: 13px; margin-left: 6px; }
+            .tbtn { background: rgba(255,255,255,.14); border: none; color: #fff; border-radius: 18px; padding: 8px 12px; font-size: 14px; }
+            #msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; gap: 14px; color: #ccc; font-size: 15px; }
+            #panel { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: none; align-items: flex-end; }
+            #panel.open { display: flex; }
+            .sheet { width: 100%; max-height: 90%; overflow-y: auto; background: #161616; border-radius: 18px 18px 0 0; padding: 18px 16px 26px; }
+            .sheet h2 { font-size: 18px; margin-bottom: 12px; }
+            .sheet label { display: block; font-size: 13px; color: #aaa; margin: 12px 0 5px; }
+            .sheet input { width: 100%; background: #262626; border: 1px solid #333; border-radius: 10px; color: #fff; padding: 11px; font-size: 15px; }
+            .sheet .hint { font-size: 12px; color: #777; margin-top: 4px; }
+            .row { display: flex; gap: 10px; margin-top: 18px; }
+            .row button { flex: 1; padding: 13px; border-radius: 12px; border: none; font-size: 15px; font-weight: 600; }
+            .primary { background: #fe2c55; color: #fff; }
+            .secondary { background: #2a2a2a; color: #fff; }
+            .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+            .chip { background: #2a2a2a; border: none; color: #ddd; border-radius: 14px; padding: 6px 10px; font-size: 13px; }
+            .spinner { width: 34px; height: 34px; border: 3px solid #444; border-top-color: #fe2c55; border-radius: 50%; animation: sp 0.8s linear infinite; }
+            @keyframes sp { to { transform: rotate(360deg); } }
+          </style>
+          </head>
+          <body>
+          <div id="top">
+            <div class="title">Лента<span id="tagLabel"></span></div>
+            <div style="display:flex;gap:8px">
+              <button class="tbtn" id="favBtn">♥ Избранное</button>
+              <button class="tbtn" id="setBtn">⚙</button>
+            </div>
+          </div>
+          <div id="feed"></div>
+          <div id="msg"><div class="spinner"></div><div>Загрузка…</div></div>
+
+          <div id="panel">
+            <div class="sheet">
+              <h2>Настройки</h2>
+              <label>Теги (через пробел)</label>
+              <input id="inTags" placeholder="например: animated sound" autocomplete="off" autocapitalize="off">
+              <div class="hint">Видео подтягиваются автоматически, отдельно писать «video» не нужно.</div>
+              <div class="chips" id="recent"></div>
+              <label>Скрывать теги (чёрный список)</label>
+              <input id="inBlack" placeholder="тег1 тег2" autocomplete="off" autocapitalize="off">
+              <label>Сортировка</label>
+              <div class="chips" id="sortChips"></div>
+              <label>API key</label>
+              <input id="inKey" placeholder="из настроек аккаунта на сайте" autocomplete="off" autocapitalize="off">
+              <label>User ID</label>
+              <input id="inUid" placeholder="число" inputmode="numeric" autocomplete="off">
+              <div class="hint">Сайт может требовать ключ API. Его выдают на сайте: My Account → Options → API Access Credentials.</div>
+              <div class="row">
+                <button class="secondary" id="closeBtn">Отмена</button>
+                <button class="primary" id="saveBtn">Поехали</button>
+              </div>
+            </div>
+          </div>
+
+          <script>
+          (function () {
+            const API = 'https://api.rule34.xxx/index.php';
+            const PAGE = 100;
+            // Always excluded, regardless of user settings.
+            const HARD_BLOCK = ['loli','lolicon','shota','shotacon','child','children','young','younger','underage','toddler','kid','kids','cub','preteen','teen','minor','baby','infant','age_difference_(minor)','petite_child','school_uniform_child','elementary_school_student','middle_school_student','young_girl','young_boy','little_girl','little_boy','kindergarten'];
+            const HARD_SET = new Set(HARD_BLOCK);
+            const HARD_QUERY = ['loli','shota','child','young','toddler','cub'];
+            const SORTS = [['', 'Новые'], ['sort:score', 'Топ'], ['sort:random', 'Рандом']];
+
+            const store = {
+              get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+              set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+            };
+
+            let cfg = Object.assign({ tags: '', black: '', key: '', uid: '', sort: '' }, store.get('cfg', {}));
+            let favs = store.get('favs', []);
+            let recent = store.get('recent', []);
+            let posts = [], seen = new Set(), pid = 0, loading = false, done = false, favMode = false;
+            let muted = store.get('muted', false);
+
+            const feed = document.getElementById('feed');
+            const msg = document.getElementById('msg');
+            const panel = document.getElementById('panel');
+
+            function userBlack() { return cfg.black.toLowerCase().split(/\s+/).filter(Boolean); }
+
+            function isBlocked(tagStr) {
+              const tags = (tagStr || '').toLowerCase().split(/\s+/);
+              const ub = new Set(userBlack());
+              for (const t of tags) {
+                if (HARD_SET.has(t) || ub.has(t)) return true;
+                if (/(^|_)(loli|shota|child|toddler|underage|preteen)(_|$)/.test(t)) return true;
+              }
+              return false;
+            }
+
+            function isVideo(url) { return /\.(mp4|webm|m4v|mov)(\?|$)/i.test(url || ''); }
+
+            function showMsg(html, spin) {
+              msg.innerHTML = (spin ? '<div class="spinner"></div>' : '') + '<div>' + html + '</div>';
+              msg.style.display = 'flex';
+            }
+            function hideMsg() { msg.style.display = 'none'; }
+
+            function buildUrl() {
+              const user = cfg.tags.toLowerCase().split(/\s+/).filter(Boolean).filter(t => !HARD_SET.has(t) && !t.startsWith('-'));
+              const neg = HARD_QUERY.concat(userBlack().slice(0, 8)).map(t => '-' + t);
+              const t = ['video'].concat(user, neg);
+              if (cfg.sort) t.push(cfg.sort);
+              let u = API + '?page=dapi&s=post&q=index&json=1&limit=' + PAGE + '&pid=' + pid + '&tags=' + encodeURIComponent(t.join(' '));
+              if (cfg.key) u += '&api_key=' + encodeURIComponent(cfg.key.trim());
+              if (cfg.uid) u += '&user_id=' + encodeURIComponent(cfg.uid.trim());
+              return u;
+            }
+
+            async function loadMore() {
+              if (loading || done || favMode) return;
+              loading = true;
+              if (!posts.length) showMsg('Загрузка…', true);
+              try {
+                const res = await fetch(buildUrl());
+                const text = await res.text();
+                let data;
+                try { data = text.trim() ? JSON.parse(text) : []; }
+                catch (e) {
+                  throw new Error(/auth|key|missing/i.test(text) ? 'Сайт просит API key. Открой ⚙ и вставь ключ и User ID.' : 'Сайт ответил что-то странное: ' + text.slice(0, 120));
+                }
+                if (!Array.isArray(data)) data = data && data.post ? [].concat(data.post) : [];
+                if (data.length < PAGE) done = true;
+                pid++;
+                const fresh = data.filter(p => p && isVideo(p.file_url) && !isBlocked(p.tags) && !seen.has(p.id));
+                fresh.forEach(p => { seen.add(p.id); addSlide(normalize(p)); });
+                if (!posts.length) {
+                  if (done) showMsg('Ничего не нашлось 🤷<br>Попробуй другие теги в ⚙');
+                  else { loading = false; return loadMore(); }
+                } else hideMsg();
+              } catch (e) {
+                if (!posts.length) showMsg('Не загрузилось 😵<br><small>' + escapeHtml(e.message || String(e)) + '</small><br><small>Если сайт заблокирован — включи VPN.</small><br><button class="tbtn" onclick="location.reload()">Ещё раз</button>');
+              }
+              loading = false;
+            }
+
+            function normalize(p) {
+              return { id: p.id, file: p.file_url, preview: p.preview_url || p.sample_url || '', tags: p.tags || '', score: p.score || 0 };
+            }
+
+            function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+            function addSlide(p) {
+              posts.push(p);
+              const el = document.createElement('div');
+              el.className = 'slide';
+              el.dataset.idx = posts.length - 1;
+              const tags = p.tags.trim().split(/\s+/).slice(0, 14).map(t => '#' + t).join(' ');
+              el.innerHTML =
+                '<div class="poster" style="background-image:url(\'' + encodeURI(p.preview) + '\')"></div>' +
+                '<video playsinline loop preload="none"' + (p.preview ? ' poster="' + encodeURI(p.preview) + '"' : '') + '></video>' +
+                '<div class="pauseicon">▶</div>' +
+                '<div class="side">' +
+                  '<button class="btn fav' + (isFav(p.id) ? ' on' : '') + '">♥</button>' +
+                  '<button class="btn mute">' + (muted ? '🔇' : '🔊') + '</button>' +
+                  '<button class="btn" style="font-size:14px"><span>★<small>' + p.score + '</small></span></button>' +
+                '</div>' +
+                '<div class="info"><b>#' + p.id + '</b><div class="tags">' + escapeHtml(tags) + '</div></div>' +
+                '<div class="bar"></div>';
+              const v = el.querySelector('video');
+              v.muted = muted;
+              v.addEventListener('timeupdate', () => { if (v.duration) el.querySelector('.bar').style.width = (v.currentTime / v.duration * 100) + '%'; });
+              v.addEventListener('click', () => { if (v.paused) { v.play().catch(() => {}); el.classList.remove('paused'); } else { v.pause(); el.classList.add('paused'); } });
+              el.querySelector('.fav').addEventListener('cl
